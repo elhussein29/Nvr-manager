@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NVR Manager</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="#">NVR Manager</a>
+      <div class="d-flex align-items-center ms-auto">
+        <div id="device-type-stats" class="text-white me-3 small"></div>
+        <a href="pcs.html" class="btn btn-info me-2">🖥️ AnyDesk Devices</a>
+        <button id="logout-btn" class="btn btn-danger">تسجيل خروج</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container my-4">
+    <h2 class="mb-3">إدارة بيانات الأجهزة</h2>
+    <div class="mb-3">
+      <input type="text" id="search-input" class="form-control" placeholder="ابحث هنا في الأجهزة..." />
+    </div>
+    <form id="device-form" class="mb-4">
+      <input type="hidden" id="doc-id" />
+      <div class="row g-3">
+        <div class="col-md-4">
+          <input type="text" class="form-control" id="site-location" placeholder="Site Location" required />
+        </div>
+        <div class="col-md-4">
+          <input type="text" class="form-control" id="device-name" placeholder="Device Name" required />
+        </div>
+        <div class="col-md-4">
+          <input type="text" class="form-control" id="username" placeholder="Username" required />
+        </div>
+        <div class="col-md-4">
+          <input type="text" class="form-control" id="password" placeholder="Password" required />
+        </div>
+        <div class="col-md-4">
+          <input type="text" class="form-control" id="verification-code" placeholder="Verification Code" />
+        </div>
+        <div class="col-md-4">
+          <input type="number" class="form-control" id="port-nvr" placeholder="Port NVR" />
+        </div>
+        <div class="col-md-4">
+          <input type="number" class="form-control" id="used-ports" placeholder="Used Ports" />
+        </div>
+        <div class="col-md-4">
+          <select class="form-select" id="device-type" required>
+            <option value="" disabled selected>Device Type</option>
+            <option value="NVR">NVR</option>
+            <option value="Camera">Camera</option>
+            <option value="Switch">Switch</option>
+          </select>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-success mt-3" id="submit-btn">إضافة جهاز</button>
+      <button type="button" class="btn btn-secondary mt-3 d-none" id="cancel-edit-btn">إلغاء التعديل</button>
+    </form>
+
+    <table class="table table-striped" id="devices-table">
+      <thead>
+        <tr>
+          <th>Site Location</th>
+          <th>Device Name</th>
+          <th>Username</th>
+          <th>Password</th>
+          <th>Verification Code</th>
+          <th>Port NVR</th>
+          <th>Used Ports</th>
+          <th>Available</th>
+          <th>Device Type</th>
+          <th>عمليات</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <button id="export-btn" class="btn btn-primary">تصدير Excel</button>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyD4wU3IYIImaBQEfDmNibN7DiDZIkfezdg",
+      authDomain: "nvr-manager.firebaseapp.com",
+      projectId: "nvr-manager",
+      storageBucket: "nvr-manager.firebasestorage.app",
+      messagingSenderId: "932622815202",
+      appId: "1:932622815202:web:f50ffafb4f6584278fb3bb",
+      measurementId: "G-GGS0SZCMD2"
+    };
+    firebase.initializeApp(firebaseConfig);
+
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    auth.onAuthStateChanged(user => {
+      if (!user) {
+        window.location.href = 'login.html';
+      }
+    });
+
+    document.getElementById('logout-btn').onclick = () => auth.signOut();
+
+    const form = document.getElementById('device-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const cancelEditBtn = document.getElementById('cancel-edit-btn');
+    let editDocId = null;
+
+    function loadDevices() {
+      const tbody = document.querySelector('#devices-table tbody');
+      tbody.innerHTML = '';
+      db.collection('devices').get().then(snapshot => {
+        snapshot.forEach(doc => {
+          const d = doc.data();
+          const available = (Number(d.portNVR || 0) - Number(d.usedPorts || 0));
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${d.siteLocation}</td>
+            <td>${d.deviceName}</td>
+            <td>${d.username}</td>
+            <td>${d.password}</td>
+            <td>${d.verificationCode || ''}</td>
+            <td>${d.portNVR || ''}</td>
+            <td>${d.usedPorts || ''}</td>
+            <td>${available}</td>
+            <td>${d.deviceType}</td>
+            <td>
+              <button class="btn btn-sm btn-warning edit-btn" data-id="${doc.id}">تعديل</button>
+              <button class="btn btn-sm btn-danger delete-btn" data-id="${doc.id}">حذف</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        document.querySelectorAll('.edit-btn').forEach(btn => {
+          btn.onclick = () => {
+            const id = btn.getAttribute('data-id');
+            db.collection('devices').doc(id).get().then(doc => {
+              const d = doc.data();
+              document.getElementById('doc-id').value = id;
+              document.getElementById('site-location').value = d.siteLocation;
+              document.getElementById('device-name').value = d.deviceName;
+              document.getElementById('username').value = d.username;
+              document.getElementById('password').value = d.password;
+              document.getElementById('verification-code').value = d.verificationCode || '';
+              document.getElementById('port-nvr').value = d.portNVR || '';
+              document.getElementById('used-ports').value = d.usedPorts || '';
+              document.getElementById('device-type').value = d.deviceType;
+              submitBtn.textContent = 'تحديث الجهاز';
+              cancelEditBtn.classList.remove('d-none');
+              editDocId = id;
+            });
+          };
+        });
+
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+          btn.onclick = () => {
+            if(confirm('هل تريد حذف هذا الجهاز؟')){
+              db.collection('devices').doc(btn.getAttribute('data-id')).delete().then(() => {
+                loadDevices();
+                loadDeviceStats();
+              });
+            }
+          };
+        });
+
+        loadDeviceStats();
+      });
+    }
+
+    function loadDeviceStats() {
+      db.collection('devices').get().then(snapshot => {
+        const counts = {};
+        snapshot.forEach(doc => {
+          const type = doc.data().deviceType || "Unknown";
+          counts[type] = (counts[type] || 0) + 1;
+        });
+
+        const statsBar = document.getElementById('device-type-stats');
+        statsBar.innerHTML = Object.entries(counts)
+          .map(([type, count]) => `<span class="me-2">${type}: ${count}</span>`)
+          .join('');
+      });
+    }
+
+    loadDevices();
+
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const data = {
+        siteLocation: form['site-location'].value,
+        deviceName: form['device-name'].value,
+        username: form['username'].value,
+        password: form['password'].value,
+        verificationCode: form['verification-code'].value,
+        portNVR: Number(form['port-nvr'].value) || 0,
+        usedPorts: Number(form['used-ports'].value) || 0,
+        deviceType: form['device-type'].value,
+      };
+
+      if(editDocId){
+        db.collection('devices').doc(editDocId).set(data).then(() => {
+          alert('تم تحديث الجهاز');
+          form.reset();
+          submitBtn.textContent = 'إضافة جهاز';
+          cancelEditBtn.classList.add('d-none');
+          editDocId = null;
+          loadDevices();
+        });
+      } else {
+        db.collection('devices').add(data).then(() => {
+          alert('تم إضافة الجهاز');
+          form.reset();
+          loadDevices();
+        });
+      }
+    });
+
+    cancelEditBtn.onclick = () => {
+      form.reset();
+      submitBtn.textContent = 'إضافة جهاز';
+      cancelEditBtn.classList.add('d-none');
+      editDocId = null;
+    };
+
+    document.getElementById('export-btn').onclick = () => {
+      db.collection('devices').get().then(snapshot => {
+        const data = [];
+        snapshot.forEach(doc => {
+          const d = doc.data();
+          data.push({
+            "Site Location": d.siteLocation,
+            "Device Name": d.deviceName,
+            "Username": d.username,
+            "Password": d.password,
+            "Verification Code": d.verificationCode || '',
+            "Port NVR": d.portNVR || '',
+            "Used Ports": d.usedPorts || '',
+            "Available": (Number(d.portNVR || 0) - Number(d.usedPorts || 0)),
+            "Device Type": d.deviceType
+          });
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Devices");
+        XLSX.writeFile(workbook, "devices.xlsx");
+      });
+    };
+
+    document.getElementById('search-input').addEventListener('input', function() {
+      const query = this.value.toLowerCase();
+      const rows = document.querySelectorAll('#devices-table tbody tr');
+      rows.forEach(row => {
+        const cellsText = Array.from(row.cells)
+          .slice(0, row.cells.length - 1)
+          .map(td => td.textContent.toLowerCase())
+          .join(' ');
+        row.style.display = cellsText.includes(query) ? '' : 'none';
+      });
+    });
+  </script>
+</body>
+</html>

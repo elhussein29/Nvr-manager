@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AnyDesk Manager</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-info">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="#">AnyDesk Manager</a>
+      <div>
+        <a href="main.html" class="btn btn-secondary me-2">🏠 الرئيسية</a>
+        <button id="logout-btn" class="btn btn-danger">تسجيل خروج</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container my-4">
+    <h2 class="mb-3">إدارة أجهزة AnyDesk</h2>
+    <div class="mb-3">
+      <input type="text" id="search-input" class="form-control" placeholder="ابحث هنا..." />
+    </div>
+    <form id="pc-form" class="mb-4">
+      <input type="hidden" id="doc-id" />
+      <div class="row g-3">
+        <div class="col-md-4">
+          <input type="text" class="form-control" id="site-location" placeholder="Site Location" required />
+        </div>
+        <div class="col-md-4">
+          <input type="text" class="form-control" id="device-name" placeholder="Device Name" required />
+        </div>
+        <div class="col-md-4">
+          <input type="text" class="form-control" id="anydesk-id" placeholder="AnyDesk ID" required />
+        </div>
+        <div class="col-md-4">
+          <input type="password" class="form-control" id="password" placeholder="Password" required />
+        </div>
+        <div class="col-md-8">
+          <input type="text" class="form-control" id="notes" placeholder="Notes" />
+        </div>
+      </div>
+      <button type="submit" class="btn btn-success mt-3" id="submit-btn">إضافة جهاز</button>
+      <button type="button" class="btn btn-secondary mt-3 d-none" id="cancel-edit-btn">إلغاء التعديل</button>
+    </form>
+
+    <table class="table table-striped" id="pcs-table">
+      <thead>
+        <tr>
+          <th>Site Location</th>
+          <th>Device Name</th>
+          <th>AnyDesk ID</th>
+          <th>Password</th>
+          <th>Notes</th>
+          <th>عمليات</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <button id="export-btn" class="btn btn-primary">تصدير Excel</button>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+  <!-- SheetJS (Excel export) -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyD4wU3IYIImaBQEfDmNibN7DiDZIkfezdg",
+      authDomain: "nvr-manager.firebaseapp.com",
+      projectId: "nvr-manager",
+      storageBucket: "nvr-manager.firebasestorage.app",
+      messagingSenderId: "932622815202",
+      appId: "1:932622815202:web:f50ffafb4f6584278fb3bb",
+      measurementId: "G-GGS0SZCMD2"
+    };
+    firebase.initializeApp(firebaseConfig);
+
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    // تأكد من تسجيل الدخول
+    auth.onAuthStateChanged(user => {
+      if (!user) {
+        window.location.href = 'login.html';
+      }
+    });
+
+    document.getElementById('logout-btn').onclick = () => auth.signOut();
+
+    const form = document.getElementById('pc-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const cancelEditBtn = document.getElementById('cancel-edit-btn');
+    let editDocId = null;
+
+    function loadPCs() {
+      const tbody = document.querySelector('#pcs-table tbody');
+      tbody.innerHTML = '';
+      db.collection('anydesk_devices').get().then(snapshot => {
+        snapshot.forEach(doc => {
+          const d = doc.data();
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${d.siteLocation}</td>
+            <td>${d.deviceName}</td>
+            <td>${d.anydeskId}</td>
+            <td>${d.password || ''}</td>
+            <td>${d.notes || ''}</td>
+            <td>
+              <button class="btn btn-sm btn-warning edit-btn" data-id="${doc.id}">تعديل</button>
+              <button class="btn btn-sm btn-danger delete-btn" data-id="${doc.id}">حذف</button>
+              <button class="btn btn-sm btn-success connect-btn" data-anydeskid="${d.anydeskId}">اتصال</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        // أزرار تعديل
+        document.querySelectorAll('.edit-btn').forEach(btn => {
+          btn.onclick = () => {
+            const id = btn.getAttribute('data-id');
+            db.collection('anydesk_devices').doc(id).get().then(doc => {
+              const d = doc.data();
+              document.getElementById('doc-id').value = id;
+              document.getElementById('site-location').value = d.siteLocation;
+              document.getElementById('device-name').value = d.deviceName;
+              document.getElementById('anydesk-id').value = d.anydeskId;
+              document.getElementById('password').value = d.password || '';
+              document.getElementById('notes').value = d.notes || '';
+
+              submitBtn.textContent = 'تحديث الجهاز';
+              cancelEditBtn.classList.remove('d-none');
+              editDocId = id;
+            });
+          };
+        });
+
+        // أزرار حذف
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+          btn.onclick = () => {
+            if(confirm('هل تريد حذف هذا الجهاز؟')){
+              db.collection('anydesk_devices').doc(btn.getAttribute('data-id')).delete().then(() => {
+                loadPCs();
+              });
+            }
+          };
+        });
+
+        // أزرار اتصال
+        document.querySelectorAll('.connect-btn').forEach(btn => {
+          btn.onclick = () => {
+            const anydeskId = btn.getAttribute('data-anydeskid');
+            // فتح AnyDesk باستخدام الرابط: anydesk:// - هذا يفتح برنامج AnyDesk المثبت عندك
+            window.open(`anydesk://${anydeskId}`, '_blank');
+          };
+        });
+
+      });
+    }
+
+    loadPCs();
+
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const data = {
+        siteLocation: form['site-location'].value,
+        deviceName: form['device-name'].value,
+        anydeskId: form['anydesk-id'].value,
+        password: form['password'].value,
+        notes: form['notes'].value,
+      };
+
+      if(editDocId){
+        db.collection('anydesk_devices').doc(editDocId).set(data).then(() => {
+          alert('تم تحديث الجهاز');
+          form.reset();
+          submitBtn.textContent = 'إضافة جهاز';
+          cancelEditBtn.classList.add('d-none');
+          editDocId = null;
+          loadPCs();
+        });
+      } else {
+        db.collection('anydesk_devices').add(data).then(() => {
+          alert('تم إضافة الجهاز');
+          form.reset();
+          loadPCs();
+        });
+      }
+    });
+
+    cancelEditBtn.onclick = () => {
+      form.reset();
+      submitBtn.textContent = 'إضافة جهاز';
+      cancelEditBtn.classList.add('d-none');
+      editDocId = null;
+    };
+
+    document.getElementById('export-btn').onclick = () => {
+      db.collection('anydesk_devices').get().then(snapshot => {
+        const data = [];
+        snapshot.forEach(doc => {
+          const d = doc.data();
+          data.push({
+            "Site Location": d.siteLocation,
+            "Device Name": d.deviceName,
+            "AnyDesk ID": d.anydeskId,
+            "Password": d.password || '',
+            "Notes": d.notes || '',
+          });
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "AnyDesk Devices");
+        XLSX.writeFile(workbook, "anydesk_devices.xlsx");
+      });
+    };
+    // فلترة الصفوف بناءً على البحث
+document.getElementById('search-input').addEventListener('input', function() {
+  const query = this.value.toLowerCase();
+  const rows = document.querySelectorAll('#pcs-table tbody tr');
+  rows.forEach(row => {
+    const cellsText = Array.from(row.cells).slice(0, 5) // أول 5 أعمدة بدون العمليات
+      .map(td => td.textContent.toLowerCase())
+      .join(' ');
+    if(cellsText.includes(query)) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+});
+
+  </script>
+</body>
+</html>
